@@ -1,0 +1,18 @@
+# dsh-grok-image bundle layer.
+# Installed via `dsh plugin --profile <name> add ./dsh-grok-image`
+# (or linked into the profile's node_modules and added to bundles).
+#
+# Registers the model tool `image_gen` that generates images through the
+# Grok Imagine subscription endpoint (same base URL, credential and proxy
+# as dsh-llm-grok).
+- insert:
+    - id: grok-image
+      name: dsh-grok-image
+      config:
+        # Direct Grok subscription endpoint through Clash/7890 proxy.
+        baseURL: https://cli-chat-proxy.grok.com/v1
+        apiKeyEnv: GROK_SESSION_TOKEN
+        proxy: http://127.0.0.1:7890
+        model: grok-imagine-image-quality
+        outputDir: ~/Workspace/grok-images
+        usageLog: true
