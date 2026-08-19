@@ -9,10 +9,13 @@
     - id: grok-image
       name: dsh-grok-image
       config:
-        # Direct Grok subscription endpoint through Clash/7890 proxy.
+        # Direct Grok subscription endpoint. `proxy` is optional: set it to
+        # your local HTTP(S) proxy (e.g. Clash on http://127.0.0.1:7890) when
+        # direct egress to cli-chat-proxy.grok.com is unavailable. Omit or
+        # leave empty for a direct connection.
         baseURL: https://cli-chat-proxy.grok.com/v1
         apiKeyEnv: GROK_SESSION_TOKEN
         proxy: http://127.0.0.1:7890
         model: grok-imagine-image-quality
-        outputDir: ~/Workspace/grok-images
+        outputDir: ~/grok-images
         usageLog: true

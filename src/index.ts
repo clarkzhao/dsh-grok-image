@@ -12,20 +12,24 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { AttachmentId, ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ImagineClient } from './client.js'
+import { renderImageResult } from './render.js'
 import { logUsage, saveToAttachments, saveToDisk } from './save.js'
 
 export const name = 'grok-image'
 export const inject = ['tools']
 
 const DEFAULT_BASE_URL = 'https://cli-chat-proxy.grok.com/v1'
-const DEFAULT_PROXY = 'http://127.0.0.1:7890'
 const DEFAULT_API_KEY_ENV = 'GROK_SESSION_TOKEN'
 const DEFAULT_MODEL = 'grok-imagine-image-quality'
-const DEFAULT_OUTPUT_DIR = '~/Workspace/grok-images'
+/** No proxy by default; deployments behind one configure `proxy` explicitly. */
+const DEFAULT_PROXY = ''
+const DEFAULT_OUTPUT_DIR = '~/grok-images'
 const IMAGE_GEN_TIMEOUT_MS = 300_000
+/** Upper bound on prompt length: guards against quota burn on nonsense input. */
+const MAX_PROMPT_LENGTH = 8_000
+const ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '3:2', '2:3'] as const
 
 export interface Config {
   baseURL?: string
@@ -61,6 +65,14 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`dsh-grok-image: missing credential ${apiKeyEnv}`)
   }
 
+  // One client (and one ProxyAgent) per plugin lifetime; closed on teardown.
+  const client = new ImagineClient({
+    baseURL: config.baseURL ?? DEFAULT_BASE_URL,
+    model,
+    proxy: config.proxy && config.proxy.length > 0 ? config.proxy : undefined,
+  })
+  ctx.effect(() => () => client.dispose())
+
   ctx.tools.register(defineTool({
     name: 'image_gen',
     description:
@@ -71,54 +83,51 @@ export function apply(ctx: Context, config: Config): void {
       prompt: {
         type: 'string',
         required: true,
-        description: 'Text description of the image to generate.',
+        description: 'Text description of the image to generate (max 8000 chars).',
       },
       aspect_ratio: {
         type: 'string',
+        enum: [...ASPECT_RATIOS],
         description: "Aspect ratio of the image: auto (default), 1:1, 16:9, 9:16, 3:2, 2:3. "
           + "1:1 for square (icons, profiles), 16:9 for wide (landscapes, cinematic), "
           + "9:16 for tall (phone wallpapers, stories), 3:2 for horizontal photos, "
           + "2:3 for vertical (portraits, posters).",
       },
+      inline_image: {
+        type: 'boolean',
+        description: 'Include the image inline in the conversation (default true). '
+          + 'Set false to return only the saved file path — use this when the current '
+          + 'model adapter does not support image content (e.g. deepseek).',
+      },
     },
     timeoutMs: IMAGE_GEN_TIMEOUT_MS,
     output: {
       schema: { type: 'json' },
-      render(_args, value) {
-        const blocks: ContentBlock[] = []
-        const v = value as Record<string, unknown>
-        if (typeof v.attachmentId === 'string' && typeof v.mediaType === 'string') {
-          blocks.push({
-            type: 'image',
-            attachment: {
-              attachmentId: v.attachmentId as AttachmentId,
-              mediaType: v.mediaType as ImageMediaType,
-              bytes: typeof v.bytes === 'number' ? v.bytes : 0,
-              width: typeof v.width === 'number' ? v.width : 0,
-              height: typeof v.height === 'number' ? v.height : 0,
-              ...(typeof v.name === 'string' ? { name: v.name } : {}),
-            },
-          })
-        }
-        if (typeof v.filePath === 'string') {
-          blocks.push({ type: 'text', text: `Grok 生成的图片已保存到: ${v.filePath}` })
-        }
-        return blocks
-      },
+      render: (_args, value) => renderImageResult(value as never),
     },
-    async execute(args) {
-      const apiKey = await resolveApiKey()
-      const client = new ImagineClient({
-        baseURL: config.baseURL ?? DEFAULT_BASE_URL,
-        apiKey,
-        model,
-        proxy: config.proxy ?? DEFAULT_PROXY,
-      })
-
+    async execute(args, exec: ToolRunContext) {
+      const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+      if (prompt.length === 0) {
+        throw new Error('image_gen: prompt must not be empty')
+      }
+      if (prompt.length > MAX_PROMPT_LENGTH) {
+        throw new Error(`image_gen: prompt too long (${prompt.length} > ${MAX_PROMPT_LENGTH} chars)`)
+      }
       const ratio = args.aspect_ratio ?? 'auto'
-      const { bytes } = await client.generate(args.prompt, ratio)
+      const inline = args.inline_image !== false
+
+      const apiKey = await resolveApiKey()
+      const { bytes } = await client.generate(prompt, ratio, apiKey, exec.signal)
+
+      if (exec.signal.aborted) {
+        throw new Error('image_gen: cancelled after generation')
+      }
 
       const filePath = await saveToDisk(outputDir, bytes)
+
+      if (exec.signal.aborted) {
+        throw new Error('image_gen: cancelled after save')
+      }
 
       const attachments = ctx.get('attachments')
       const ref = attachments !== undefined
@@ -135,12 +144,16 @@ export function apply(ctx: Context, config: Config): void {
       }
 
       return {
-        attachmentId: ref?.attachmentId ?? '',
-        mediaType: ref?.mediaType ?? 'image/jpeg',
-        bytes: ref?.bytes ?? bytes.length,
-        width: ref?.width ?? 0,
-        height: ref?.height ?? 0,
-        ...(ref?.name !== undefined ? { name: ref.name } : {}),
+        ...(ref !== undefined && inline
+          ? {
+            attachmentId: ref.attachmentId,
+            mediaType: ref.mediaType,
+            bytes: ref.bytes,
+            width: ref.width,
+            height: ref.height,
+            ...(ref.name !== undefined ? { name: ref.name } : {}),
+          }
+          : {}),
         filePath,
       }
     },

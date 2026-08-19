@@ -11,9 +11,10 @@ DeepSeek Harness 插件:把 **Grok Imagine 图片生成**(订阅额度)注册成
 - 走 Grok 订阅端点 `https://cli-chat-proxy.grok.com/v1/images/generations`,与 `dsh-llm-grok` 同一凭据(`GROK_SESSION_TOKEN`)与代理(Clash `http://127.0.0.1:7890`)
 - 模型:`grok-imagine-image-quality`(默认,可配置)
 - 比例:auto / 1:1 / 16:9 / 9:16 / 3:2 / 2:3
+- 参数 `inline_image`(默认 true):是否把图片内联进对话。**当前模型适配器不支持图片内容时**(如 deepseek),设 `false` 只返回保存路径
 - 生成结果:
-  - 写入 DSH 附件服务 → Web UI 直接内联渲染,模型可继续看图
-  - 同时落盘到 `outputDir`(默认 `~/Workspace/grok-images`)→ 本地文件副本
+  - 写入 DSH 附件服务 → Web UI 直接内联渲染,模型可继续看图(grok 模型)
+  - 同时落盘到 `outputDir`(默认 `~/grok-images`)→ 本地文件副本
   - 用量记入 `usage.log.jsonl`(成本核算用;Imagine API 不返回单次 usage)
 
 ## 安装
