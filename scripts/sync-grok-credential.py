@@ -50,13 +50,38 @@ def main() -> int:
         print(f'sync-grok-credential: cannot read {DSH_CRED}: {e}', file=sys.stderr)
         return 1
 
-    line_pattern = re.compile(rf'^{KEY}:\s*\S+', re.M)
-    if line_pattern.search(content):
-        if re.search(rf'^{KEY}:\s*{re.escape(token)}$', content, re.M):
-            return 0  # already in sync
-        new_content = line_pattern.sub(f'{KEY}: {token}', content)
+    versioned = bool(
+        re.search(r'^version:\s*1\s*$', content, re.M)
+        and re.search(r'^refs:\s*$', content, re.M)
+    )
+    if versioned:
+        # Drop a stray unindented copy a previous flat write may have appended.
+        stripped = re.sub(rf'^{KEY}:[ \t]*.*\n?', '', content, flags=re.M)
+        indented = re.compile(rf'^  {KEY}:[ \t]*.*$', re.M)
+        replacement = f'  {KEY}: {token}'
+        if indented.search(stripped):
+            if re.search(rf'^  {KEY}:[ \t]*{re.escape(token)}$', stripped, re.M):
+                if stripped == content:
+                    return 0  # already in sync under refs, no stray copy
+                new_content = stripped
+            else:
+                new_content = indented.sub(replacement, stripped, count=1)
+        else:
+            new_content = re.sub(
+                r'^refs:\s*$',
+                f'refs:\n{replacement}',
+                stripped,
+                count=1,
+                flags=re.M,
+            )
     else:
-        new_content = (content.rstrip() + '\n' if content else '') + f'{KEY}: {token}\n'
+        line_pattern = re.compile(rf'^{KEY}:\s*\S+', re.M)
+        if line_pattern.search(content):
+            if re.search(rf'^{KEY}:\s*{re.escape(token)}$', content, re.M):
+                return 0  # already in sync
+            new_content = line_pattern.sub(f'{KEY}: {token}', content)
+        else:
+            new_content = (content.rstrip() + '\n' if content else '') + f'{KEY}: {token}\n'
 
     # Atomic replace in the same directory (same filesystem) with
     # owner-only permissions, matching the credentials provider's policy.
