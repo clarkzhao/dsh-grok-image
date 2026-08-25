@@ -2,6 +2,14 @@
 """Sync the current Grok CLI credential (~/.grok/auth.json) into DSH's
 credentials file (~/.dsh/.credentials.yaml) whenever they differ.
 
+Canonical copy + install docs now live in sibling repo dsh-llm-grok:
+
+  ../dsh-llm-grok/scripts/sync-grok-credential.py
+  ../dsh-llm-grok/docs/credential-sync.md
+
+This file is kept so existing launchd ProgramArguments that pointed here
+keep working. Prefer the dsh-llm-grok copy for new installs.
+
 DSH's credentials provider watches the file (chokidar) and hot-publishes
 external edits, so no DSH restart is needed after this script runs.
 
