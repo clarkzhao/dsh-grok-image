@@ -15,6 +15,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ImagineClient } from './client.js'
 import { renderImageResult } from './render.js'
+import { basename } from 'node:path'
 import { logUsage, saveToAttachments, saveToDisk, resolveOutputDir } from './save.js'
 
 export const name = 'grok-image'
@@ -33,7 +34,6 @@ const ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '3:2', '2:3'] as const
 
 interface AirpStage {
   markdownUrl(fileName: string): string | undefined
-  publish(input: { filePath: string }): Promise<{ fileName: string; url?: string; markdown?: string }>
   mountRoot(dir: string): () => void
 }
 
@@ -162,9 +162,7 @@ export function apply(ctx: Context, config: Config): void {
         : undefined
 
       const stage = ctx.get('airpStage') as AirpStage | undefined
-      const staged = stage !== undefined
-        ? await stage.publish({ filePath }).catch(() => undefined)
-        : undefined
+      const url = stage?.markdownUrl(basename(filePath))
 
       if (config.usageLog ?? true) {
         await logUsage(outputDir, {
@@ -187,7 +185,7 @@ export function apply(ctx: Context, config: Config): void {
           }
           : {}),
         filePath,
-        ...(staged?.url ? { url: staged.url, markdown: staged.markdown } : {}),
+        ...(url ? { url } : {}),
       }
     },
   }))

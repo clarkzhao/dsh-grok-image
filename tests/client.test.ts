@@ -181,12 +181,11 @@ test('renderImageResult emits image block only with a complete attachment', () =
   const staged = renderImageResult({
     filePath: '/tmp/x.jpg',
     url: 'http://127.0.0.1:3080/airp-media/x.jpg',
-    markdown: '![x.jpg](http://127.0.0.1:3080/airp-media/x.jpg)',
   })
   assert.equal(staged.length, 1)
   assert.equal(staged[0].type, 'text')
   if (staged[0].type === 'text') {
-    assert.match(staged[0].text, /嵌入叙述用：!\[x\.jpg\]\(http:\/\/127\.0\.0\.1:3080\/airp-media\/x\.jpg\)/)
+    assert.match(staged[0].text, /嵌入叙述用：!\[image\]\(http:\/\/127\.0\.0\.1:3080\/airp-media\/x\.jpg\)/)
     assert.doesNotMatch(staged[0].text, /\/tmp\/x\.jpg/)
   }
 })

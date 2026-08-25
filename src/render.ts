@@ -15,7 +15,6 @@ export interface ImageGenResultValue {
   name?: unknown
   filePath?: unknown
   url?: unknown
-  markdown?: unknown
 }
 
 /**
@@ -50,10 +49,7 @@ export function renderImageResult(value: ImageGenResultValue): ContentBlock[] {
     })
   }
   if (typeof value.url === 'string' && /^https?:\/\//.test(value.url)) {
-    const markdown = typeof value.markdown === 'string' && value.markdown.length > 0
-      ? value.markdown
-      : `![image](${value.url})`
-    blocks.push({ type: 'text', text: `嵌入叙述用：${markdown}` })
+    blocks.push({ type: 'text', text: `嵌入叙述用：![image](${value.url})` })
   } else if (typeof value.filePath === 'string' && value.filePath.length > 0) {
     blocks.push({ type: 'text', text: `Grok 生成的图片已保存到: ${value.filePath}` })
   }
