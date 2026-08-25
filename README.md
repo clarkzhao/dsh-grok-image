@@ -17,16 +17,15 @@ DeepSeek Harness 插件:把 **Grok Imagine 图片生成**(订阅额度)注册成
   - 同时落盘到 `outputDir`(默认 `~/grok-images`)→ 本地文件副本
   - 用量记入 `usage.log.jsonl`(成本核算用;Imagine API 不返回单次 usage)
 
-## 本地媒体路由
+## 本地媒体（可选 AIRP 舞台）
 
-插件在 DSH webServer 上注册 `/grok-media` 路由,serve `outputDir` 里的生成图。web 对话里想引用某张图为图片时,用浏览器同 Origin 的绝对 URL:
+本插件**不**自建 HTTP 路由。装了 `dsh-airp` 时，生成图挂到 Host 的 `airpStage`（`/airp-media`）。工具回执带同源绝对 URL，叙述者写进对白：
 
 ```markdown
-![水墨斗笠猫](<web-origin>/grok-media/mashui-cat-xxx.jpg)
+![水墨斗笠猫](http://127.0.0.1:3080/airp-media/mashui-cat-xxx.jpg)
 ```
 
-例如 origin 为 `http://127.0.0.1:3080`(SSH 端口转发)时:`http://127.0.0.1:3080/grok-media/mashui-cat-xxx.jpg`。
-注意:**必须用绝对 URL 且与你访问 Web UI 的 origin 一致**(渲染器不认相对路径;https 页面不能加载 http 图片)。
+Web Markdown 只渲染绝对 http(s)，且须与当前 GUI origin 一致。没有 AIRP 时仍落盘 + 附件，不贴本地路径。
 
 ## 安装
 

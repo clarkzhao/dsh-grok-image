@@ -13,12 +13,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { readFile, stat } from 'node:fs/promises'
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { basename, extname, resolve } from 'node:path'
 import { ImagineClient } from './client.js'
 import { renderImageResult } from './render.js'
-import { logUsage, saveToAttachments, saveToDisk, expandHome } from './save.js'
+import { logUsage, saveToAttachments, saveToDisk, resolveOutputDir } from './save.js'
 
 export const name = 'grok-image'
 export const inject = ['tools']
@@ -33,17 +30,11 @@ const IMAGE_GEN_TIMEOUT_MS = 300_000
 /** Upper bound on prompt length: guards against quota burn on nonsense input. */
 const MAX_PROMPT_LENGTH = 8_000
 const ASPECT_RATIOS = ['auto', '1:1', '16:9', '9:16', '3:2', '2:3'] as const
-/** Media route prefix that serves generated images over the DSH web server. */
-const MEDIA_ROUTE_PREFIX = '/grok-media'
-const MEDIA_MAX_BYTES = 20 * 1024 * 1024
-const MEDIA_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.bmp': 'image/bmp',
+
+interface AirpStage {
+  markdownUrl(fileName: string): string | undefined
+  publish(input: { filePath: string }): Promise<{ fileName: string; url?: string; markdown?: string }>
+  mountRoot(dir: string): () => void
 }
 
 export interface Config {
@@ -88,50 +79,25 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.effect(() => () => client.dispose())
 
-  // Serve generated images over the DSH web server so the Web UI can
-  // reference them by <origin>/grok-media/<file>. Optional: absent in a
-  // headless profile without webServer.
-  const webServer = ctx.get('webServer') as { register: (route: {
-    kind: 'prefix' | 'exact'
-    path: string
-    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
-  }) => () => void } | undefined
-  if (webServer !== undefined) {
-    const mediaRoot = resolve(expandHome(outputDir))
-    const disposeRoute = webServer.register({
-      kind: 'prefix',
-      path: MEDIA_ROUTE_PREFIX,
-      handler: async (req, res) => {
-        if (req.method !== 'GET') {
-          res.writeHead(405)
-          res.end()
-          return
-        }
-        const name = (req.url ?? '/').split('?')[0].split('/').pop() ?? ''
-        if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) {
-          res.writeHead(400, { 'Content-Type': 'text/plain' })
-          res.end('bad request')
-          return
-        }
-        try {
-          const filePath = resolve(mediaRoot, name)
-          const info = await stat(filePath)
-          if (!info.isFile() || info.size > MEDIA_MAX_BYTES) {
-            res.writeHead(404, { 'Content-Type': 'text/plain' })
-            res.end('not found')
-            return
-          }
-          const type = MEDIA_TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream'
-          res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' })
-          const body = await readFile(filePath)
-          res.end(body)
-        } catch {
-          res.writeHead(404, { 'Content-Type': 'text/plain' })
-          res.end('not found')
-        }
-      },
-    })
-    ctx.effect(() => () => disposeRoute())
+  // Optional AIRP host stage. When dsh-airp is mounted, hang the output
+  // directory on /airp-media instead of owning a grok-specific route.
+  let attached = false
+  const attachStage = (stage: AirpStage) => {
+    if (attached) return
+    attached = true
+    const root = resolveOutputDir(outputDir)
+    ctx.effect(() => stage.mountRoot(root), 'dsh-grok-image: airpStage mountRoot')
+  }
+  const existingStage = ctx.get('airpStage') as AirpStage | undefined
+  if (existingStage !== undefined) attachStage(existingStage)
+  else {
+    const inject = (ctx as { inject?: (deps: string[], callback: (inner: Context) => void) => unknown }).inject
+    if (typeof inject === 'function') {
+      inject.call(ctx, ['airpStage'], (inner) => {
+        const stage = inner.get('airpStage') as AirpStage | undefined
+        if (stage !== undefined) attachStage(stage)
+      })
+    }
   }
 
   ctx.tools.register(defineTool({
@@ -195,6 +161,11 @@ export function apply(ctx: Context, config: Config): void {
         ? await saveToAttachments(attachments, bytes, filePath)
         : undefined
 
+      const stage = ctx.get('airpStage') as AirpStage | undefined
+      const staged = stage !== undefined
+        ? await stage.publish({ filePath }).catch(() => undefined)
+        : undefined
+
       if (config.usageLog ?? true) {
         await logUsage(outputDir, {
           model,
@@ -216,6 +187,7 @@ export function apply(ctx: Context, config: Config): void {
           }
           : {}),
         filePath,
+        ...(staged?.url ? { url: staged.url, markdown: staged.markdown } : {}),
       }
     },
   }))

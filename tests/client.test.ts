@@ -162,6 +162,7 @@ test('renderImageResult emits image block only with a complete attachment', () =
   })
   assert.equal(full[0].type, 'image')
   assert.equal(full[1].type, 'text')
+  if (full[1].type === 'text') assert.match(full[1].text, /已保存到/)
 
   // Empty attachmentId -> no image block, text only.
   const empty = renderImageResult({ attachmentId: '', mediaType: 'image/jpeg', bytes: 10, width: 0, height: 0, filePath: '/tmp/x.jpg' })
@@ -176,6 +177,18 @@ test('renderImageResult emits image block only with a complete attachment', () =
   // No filePath -> empty blocks.
   const none = renderImageResult({})
   assert.equal(none.length, 0)
+
+  const staged = renderImageResult({
+    filePath: '/tmp/x.jpg',
+    url: 'http://127.0.0.1:3080/airp-media/x.jpg',
+    markdown: '![x.jpg](http://127.0.0.1:3080/airp-media/x.jpg)',
+  })
+  assert.equal(staged.length, 1)
+  assert.equal(staged[0].type, 'text')
+  if (staged[0].type === 'text') {
+    assert.match(staged[0].text, /嵌入叙述用：!\[x\.jpg\]\(http:\/\/127\.0\.0\.1:3080\/airp-media\/x\.jpg\)/)
+    assert.doesNotMatch(staged[0].text, /\/tmp\/x\.jpg/)
+  }
 })
 
 test('expandHome and resolveOutputDir', () => {
