@@ -83,7 +83,7 @@ test('generate posts the exact wire contract and decodes JPEG bytes', async () =
     return { status: 200, body: JSON.stringify({ data: [{ b64_json: JPEG_B64 }] }) }
   })
   try {
-    const client = new ImagineClient({ baseURL: mock.url, model: MODEL })
+    const client = new ImagineClient(() => ({ baseURL: mock.url, model: MODEL }))
     const { bytes, mediaType } = await client.generate('a red apple', '1:1', 'test-token')
     assert.equal(mediaType, 'image/jpeg')
     assert.ok(bytes[0] === 0xff && bytes[1] === 0xd8, 'JPEG SOI magic')
@@ -105,7 +105,7 @@ test('non-2xx errors never leak the bearer token even when the server reflects i
     body: JSON.stringify({ error: 'invalid token', authorization: `Bearer ${FAKE_JWT}` }),
   }))
   try {
-    const client = new ImagineClient({ baseURL: mock.url, model: MODEL })
+    const client = new ImagineClient(() => ({ baseURL: mock.url, model: MODEL }))
     await assert.rejects(
       client.generate('x', '1:1', FAKE_JWT),
       (err: Error) => {
@@ -123,7 +123,7 @@ test('non-2xx errors never leak the bearer token even when the server reflects i
 test('200 with no b64_json -> clear error', async () => {
   const mock = await startMock(() => ({ status: 200, body: JSON.stringify({ data: [] }) }))
   try {
-    const client = new ImagineClient({ baseURL: mock.url, model: MODEL })
+    const client = new ImagineClient(() => ({ baseURL: mock.url, model: MODEL }))
     await assert.rejects(client.generate('x', '1:1', 't'), /no image data/)
   } finally {
     await mock.close()
@@ -133,7 +133,7 @@ test('200 with no b64_json -> clear error', async () => {
 test('200 with non-JSON body -> clear error', async () => {
   const mock = await startMock(() => ({ status: 200, body: 'not-json' }))
   try {
-    const client = new ImagineClient({ baseURL: mock.url, model: MODEL })
+    const client = new ImagineClient(() => ({ baseURL: mock.url, model: MODEL }))
     await assert.rejects(client.generate('x', '1:1', 't'), /invalid JSON/)
   } finally {
     await mock.close()
@@ -143,7 +143,7 @@ test('200 with non-JSON body -> clear error', async () => {
 test('abort signal cancels a pending request', async () => {
   const mock = await startMock(() => new Promise(() => undefined) as never)
   try {
-    const client = new ImagineClient({ baseURL: mock.url, model: MODEL, timeoutMs: 60_000 })
+    const client = new ImagineClient(() => ({ baseURL: mock.url, model: MODEL }))
     const controller = new AbortController()
     const promise = client.generate('x', '1:1', 't', controller.signal)
     controller.abort(new Error('caller-cancel'))

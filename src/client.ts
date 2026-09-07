@@ -3,8 +3,9 @@
  * images. Mirrors the wire behaviour of grok-build's `image_gen` tool:
  * `POST {baseURL}/images/generations` with `response_format: b64_json`.
  *
- * Talks through an undici ProxyAgent when configured, using the same headers
- * as the dsh-llm-grok chat adapter.
+ * Connection facts arrive through a thunk resolved once per call so a
+ * settings change reaches the next request; an in-flight generate keeps the
+ * facts it started with. Talks through an undici ProxyAgent when configured.
  */
 
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
@@ -14,13 +15,10 @@ export interface ImagineOptions {
   baseURL: string
   model: string
   proxy?: string
-  /** Total request timeout; image generation can take well over a minute. */
-  timeoutMs?: number
 }
 
 /** Match the installed grok CLI so cli-chat-proxy version-gating stays happy. */
 const GROK_CLIENT_VERSION = '1.0.13'
-const DEFAULT_TIMEOUT_MS = 300_000
 /** JPEG SOI marker: first two bytes of every JPEG stream. */
 const JPEG_SOI_0 = 0xff
 const JPEG_SOI_1 = 0xd8
@@ -32,30 +30,39 @@ export interface GeneratedImage {
   mediaType: 'image/jpeg'
 }
 
-/** Sanitize an upstream error body so credentials can never reach an Error. */
-export function sanitizeErrorBody(body: string): string {
-  return body
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer <redacted>')
-    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '<redacted-jwt>')
-    .replace(/(api[_-]?key|token|authorization)["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{8,}/gi, '$1=<redacted>')
-    .slice(0, 300)
-}
-
 export class ImagineClient {
-  private readonly dispatcher: ProxyAgent | undefined
-  private readonly options: ImagineOptions
+  private readonly options: () => ImagineOptions
+  private dispatcher: ProxyAgent | undefined
+  private dispatcherProxy: string | undefined
 
-  constructor(options: ImagineOptions) {
+  constructor(options: () => ImagineOptions) {
     this.options = options
-    this.dispatcher = options.proxy ? new ProxyAgent(options.proxy) : undefined
   }
 
   /** Close the underlying proxy agent; call once when the client is retired. */
   dispose(): void {
     this.dispatcher?.close().catch(() => undefined)
+    this.dispatcher = undefined
+    this.dispatcherProxy = undefined
   }
 
-  private headers(apiKey: string): Record<string, string> {
+  private dispatcherFor(proxy: string | undefined): ProxyAgent | undefined {
+    if (proxy === undefined || proxy.length === 0) {
+      if (this.dispatcher !== undefined) {
+        this.dispatcher.close().catch(() => undefined)
+        this.dispatcher = undefined
+        this.dispatcherProxy = undefined
+      }
+      return undefined
+    }
+    if (this.dispatcher !== undefined && this.dispatcherProxy === proxy) return this.dispatcher
+    if (this.dispatcher !== undefined) this.dispatcher.close().catch(() => undefined)
+    this.dispatcher = new ProxyAgent(proxy)
+    this.dispatcherProxy = proxy
+    return this.dispatcher
+  }
+
+  private headers(apiKey: string, model: string): Record<string, string> {
     return {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
@@ -63,7 +70,7 @@ export class ImagineClient {
       'x-authenticateresponse': 'authenticate-response',
       'x-grok-client-version': GROK_CLIENT_VERSION,
       'x-grok-client-identifier': 'dsh-grok-image',
-      'x-grok-model-override': this.options.model,
+      'x-grok-model-override': model,
       ...attributionHeaders(),
     }
   }
@@ -83,9 +90,10 @@ export class ImagineClient {
     apiKey: string,
     signal?: AbortSignal,
   ): Promise<GeneratedImage> {
-    const url = `${this.options.baseURL.replace(/\/+$/, '')}/images/generations`
+    const connection = this.options()
+    const url = `${connection.baseURL.replace(/\/+$/, '')}/images/generations`
     const body = JSON.stringify({
-      model: this.options.model,
+      model: connection.model,
       prompt,
       n: 1,
       aspect_ratio: aspectRatio,
@@ -93,36 +101,19 @@ export class ImagineClient {
       response_format: 'b64_json',
     })
 
-    const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(new Error('image generation timed out')), timeoutMs)
-    const forwardAbort = (): void => controller.abort(signal?.reason)
-    signal?.addEventListener('abort', forwardAbort)
-
-    let response: Response
-    try {
-      response = await undiciFetch(url, {
-        method: 'POST',
-        headers: this.headers(apiKey),
-        body,
-        signal: controller.signal,
-        dispatcher: this.dispatcher,
-      }) as unknown as Response
-    } finally {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', forwardAbort)
-    }
+    const response = await undiciFetch(url, {
+      method: 'POST',
+      headers: this.headers(apiKey, connection.model),
+      body,
+      signal,
+      dispatcher: this.dispatcherFor(connection.proxy),
+    }) as unknown as Response
 
     if (!response.ok) {
-      // Never echo the raw upstream body: it may contain the Authorization
-      // header / JWT (e.g. a debug gateway that reflects request headers).
-      const text = await response.text().catch(() => '')
-      throw new Error(
-        `Grok image generation failed (http_${response.status})`,
-      )
-      // Diagnostic body is only carried in the error CAUSE, never the message:
-      // eslint-disable-next-line no-unreachable
-      void text
+      // Drain the body so the socket can close, but never put it on the
+      // Error — an upstream gateway may echo Authorization / JWT.
+      await response.text().catch(() => '')
+      throw new Error(`Grok image generation failed (http_${response.status})`)
     }
 
     let parsed: { data?: Array<{ b64_json?: string }> }

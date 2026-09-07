@@ -91,29 +91,21 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  // Rebuild the HTTP client when connection facts change; close the old agent.
-  let client = new ImagineClient({
-    baseURL: read().baseURL,
-    model: read().model,
-    proxy: read().proxy.length > 0 ? read().proxy : undefined,
-  })
-  const rebuildClient = (): void => {
+  const client = new ImagineClient(() => {
     const next = read()
-    const nextProxy = next.proxy.length > 0 ? next.proxy : undefined
-    client.dispose()
-    client = new ImagineClient({
+    return {
       baseURL: next.baseURL,
       model: next.model,
-      proxy: nextProxy,
-    })
-  }
+      ...next.proxy.length > 0 ? { proxy: next.proxy } : {},
+    }
+  })
   ctx.effect(() => () => client.dispose())
   ctx.inject(['settings'], (settingsCtx) => {
     settingsCtx.settings.installSection(ctx, 'grok-image', Config, config, {
       setSource: (source: () => Config) => {
         current = source
       },
-      onChange: rebuildClient,
+      onChange() {},
     })
   })
 
@@ -129,13 +121,10 @@ export function apply(ctx: Context, config: Config): void {
   const existingStage = ctx.get('airpStage') as AirpStage | undefined
   if (existingStage !== undefined) attachStage(existingStage)
   else {
-    const inject = (ctx as { inject?: (deps: string[], callback: (inner: Context) => void) => unknown }).inject
-    if (typeof inject === 'function') {
-      inject.call(ctx, ['airpStage'], (inner) => {
-        const stage = inner.get('airpStage') as AirpStage | undefined
-        if (stage !== undefined) attachStage(stage)
-      })
-    }
+    ctx.inject(['airpStage'], (inner) => {
+      const stage = inner.get('airpStage') as AirpStage | undefined
+      if (stage !== undefined) attachStage(stage)
+    })
   }
 
   ctx.tools.register(defineTool({
