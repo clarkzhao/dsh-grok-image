@@ -2,9 +2,9 @@
 # Installed via `dsh plugin --profile <name> add ./dsh-grok-image`
 # (or linked into the profile's node_modules and added to bundles).
 #
-# Registers the model tool `image_gen` that generates images through the
-# Grok Imagine subscription endpoint (same base URL, credential and proxy
-# as dsh-llm-grok).
+# Compatible with DSH 0.1.2-rc.1. Registers the model tool `image_gen`
+# that generates images through the Grok Imagine subscription endpoint
+# (same base URL, credential and proxy as dsh-llm-grok).
 - insert:
     - id: grok-image
       name: dsh-grok-image

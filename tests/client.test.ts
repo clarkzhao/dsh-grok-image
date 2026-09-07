@@ -91,6 +91,9 @@ test('generate posts the exact wire contract and decodes JPEG bytes', async () =
     assert.equal(req.headers.authorization, 'Bearer test-token')
     assert.equal(req.headers['x-xai-token-auth'], 'xai-grok-cli')
     assert.equal(req.headers['x-grok-model-override'], MODEL)
+    assert.equal(req.headers['x-grok-client-version'], '1.0.13')
+    assert.equal(req.headers['x-grok-client-identifier'], 'dsh-grok-image')
+    assert.ok(typeof req.headers['user-agent'] === 'string' && req.headers['user-agent'].length > 0)
   } finally {
     await mock.close()
   }

@@ -1,6 +1,6 @@
 # dsh-grok-image
 
-DeepSeek Harness 插件:把 **Grok Imagine 图片生成**(订阅额度)注册成 DSH 的模型工具 `image_gen`。
+DeepSeek Harness 插件:把 **Grok Imagine 图片生成**(订阅额度)注册成 DSH 的模型工具 `image_gen`。针对 **DSH 0.1.2-rc.1**。
 
 - GitHub: https://github.com/clarkzhao/dsh-grok-image (待发布)
 - topic: `dsh-plugin`

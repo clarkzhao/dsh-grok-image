@@ -8,6 +8,7 @@
  */
 
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 
 export interface ImagineOptions {
   baseURL: string
@@ -17,7 +18,8 @@ export interface ImagineOptions {
   timeoutMs?: number
 }
 
-const GROK_CLIENT_VERSION = '1.0.4'
+/** Match the installed grok CLI so cli-chat-proxy version-gating stays happy. */
+const GROK_CLIENT_VERSION = '1.0.13'
 const DEFAULT_TIMEOUT_MS = 300_000
 /** JPEG SOI marker: first two bytes of every JPEG stream. */
 const JPEG_SOI_0 = 0xff
@@ -60,7 +62,9 @@ export class ImagineClient {
       'X-XAI-Token-Auth': 'xai-grok-cli',
       'x-authenticateresponse': 'authenticate-response',
       'x-grok-client-version': GROK_CLIENT_VERSION,
+      'x-grok-client-identifier': 'dsh-grok-image',
       'x-grok-model-override': this.options.model,
+      ...attributionHeaders(),
     }
   }
 

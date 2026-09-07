@@ -13,6 +13,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import '@deepseek-ai/dsh-settings'
 import { ImagineClient } from './client.js'
 import { renderImageResult } from './render.js'
 import { basename } from 'node:path'
@@ -56,28 +60,62 @@ export const Config: z<Config> = z.object({
 })
 
 export function apply(ctx: Context, config: Config): void {
-  const apiKeyEnv = config.apiKeyEnv ?? DEFAULT_API_KEY_ENV
-  const model = config.model ?? DEFAULT_MODEL
-  const outputDir = config.outputDir ?? DEFAULT_OUTPUT_DIR
-
-  const resolveApiKey = async (): Promise<string> => {
-    const credentials = ctx.get('credentials')
-    if (credentials !== undefined) {
-      const hit = await credentials.resolve(apiKeyEnv as never)
-      if (hit !== undefined && hit.value.length > 0) return hit.value
+  let current = (): Config => config
+  const read = (): Required<Pick<Config, 'baseURL' | 'apiKeyEnv' | 'proxy' | 'model' | 'outputDir' | 'usageLog'>> => {
+    const value = current()
+    return {
+      baseURL: value.baseURL ?? DEFAULT_BASE_URL,
+      apiKeyEnv: value.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
+      proxy: value.proxy ?? DEFAULT_PROXY,
+      model: value.model ?? DEFAULT_MODEL,
+      outputDir: value.outputDir ?? DEFAULT_OUTPUT_DIR,
+      usageLog: value.usageLog ?? true,
     }
-    const ambient = process.env[apiKeyEnv]
-    if (ambient !== undefined && ambient.length > 0) return ambient
-    throw new Error(`dsh-grok-image: missing credential ${apiKeyEnv}`)
   }
 
-  // One client (and one ProxyAgent) per plugin lifetime; closed on teardown.
-  const client = new ImagineClient({
-    baseURL: config.baseURL ?? DEFAULT_BASE_URL,
-    model,
-    proxy: config.proxy && config.proxy.length > 0 ? config.proxy : undefined,
+  const resolveApiKey = async (): Promise<string> => {
+    const ref = credentialRef(read().apiKeyEnv)
+    const credentials = ctx.get('credentials')
+    if (credentials !== undefined) {
+      const hit = await credentials.resolve(ref)
+      if (hit !== undefined) return assertUsableApiKey(hit.value, 'dsh-grok-image', ref)
+    } else {
+      const ambient = launchEnvironmentOf(ctx).get(ref)
+      if (ambient !== undefined && ambient.value.length > 0) {
+        return assertUsableApiKey(ambient.value, 'dsh-grok-image', ref)
+      }
+    }
+    throw new LlmError(
+      `dsh-grok-image: missing credential ${ref}; store it through the credentials service, or export it in the launching environment`,
+      'MISSING_CREDENTIAL',
+    )
+  }
+
+  // Rebuild the HTTP client when connection facts change; close the old agent.
+  let client = new ImagineClient({
+    baseURL: read().baseURL,
+    model: read().model,
+    proxy: read().proxy.length > 0 ? read().proxy : undefined,
   })
+  const rebuildClient = (): void => {
+    const next = read()
+    const nextProxy = next.proxy.length > 0 ? next.proxy : undefined
+    client.dispose()
+    client = new ImagineClient({
+      baseURL: next.baseURL,
+      model: next.model,
+      proxy: nextProxy,
+    })
+  }
   ctx.effect(() => () => client.dispose())
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, 'grok-image', Config, config, {
+      setSource: (source: () => Config) => {
+        current = source
+      },
+      onChange: rebuildClient,
+    })
+  })
 
   // Optional AIRP host stage. When dsh-airp is mounted, hang the output
   // directory on /airp-media instead of owning a grok-specific route.
@@ -85,7 +123,7 @@ export function apply(ctx: Context, config: Config): void {
   const attachStage = (stage: AirpStage) => {
     if (attached) return
     attached = true
-    const root = resolveOutputDir(outputDir)
+    const root = resolveOutputDir(read().outputDir)
     ctx.effect(() => stage.mountRoot(root), 'dsh-grok-image: airpStage mountRoot')
   }
   const existingStage = ctx.get('airpStage') as AirpStage | undefined
@@ -144,13 +182,14 @@ export function apply(ctx: Context, config: Config): void {
       const inline = args.inline_image !== false
 
       const apiKey = await resolveApiKey()
+      const snapshot = read()
       const { bytes } = await client.generate(prompt, ratio, apiKey, exec.signal)
 
       if (exec.signal.aborted) {
         throw new Error('image_gen: cancelled after generation')
       }
 
-      const filePath = await saveToDisk(outputDir, bytes)
+      const filePath = await saveToDisk(snapshot.outputDir, bytes)
 
       if (exec.signal.aborted) {
         throw new Error('image_gen: cancelled after save')
@@ -164,9 +203,9 @@ export function apply(ctx: Context, config: Config): void {
       const stage = ctx.get('airpStage') as AirpStage | undefined
       const url = stage?.markdownUrl(basename(filePath))
 
-      if (config.usageLog ?? true) {
-        await logUsage(outputDir, {
-          model,
+      if (snapshot.usageLog) {
+        await logUsage(snapshot.outputDir, {
+          model: snapshot.model,
           aspectRatio: ratio,
           bytes: bytes.length,
           filePath,
