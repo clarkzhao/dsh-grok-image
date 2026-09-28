@@ -16,7 +16,6 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import '@deepseek-ai/dsh-settings'
 import { ImagineClient } from './client.js'
 import { renderImageResult } from './render.js'
 import { basename } from 'node:path'
@@ -60,7 +59,7 @@ export const Config: z<Config> = z.object({
 })
 
 export function apply(ctx: Context, config: Config): void {
-  let current = (): Config => config
+  const current = (): Config => config
   const read = (): Required<Pick<Config, 'baseURL' | 'apiKeyEnv' | 'proxy' | 'model' | 'outputDir' | 'usageLog'>> => {
     const value = current()
     return {
@@ -100,14 +99,11 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
   ctx.effect(() => () => client.dispose())
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, 'grok-image', Config, config, {
-      setSource: (source: () => Config) => {
-        current = source
-      },
-      onChange() {},
-    })
-  })
+
+  // DSH 0.1.7 derives the `grok-image` settings page from the exported `Config`
+  // schema itself; there is no section to install and no source callback to
+  // register. Live edits reach this instance through the profile config editor,
+  // which re-applies the entry, so `read()` always sees current values.
 
   // Optional AIRP host stage. When dsh-airp is mounted, hang the output
   // directory on /airp-media instead of owning a grok-specific route.
