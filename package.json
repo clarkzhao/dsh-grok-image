@@ -1,6 +1,6 @@
 {
   "name": "dsh-grok-image",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "DeepSeek Harness plugin: Grok Imagine image generation as a model tool (subscription)",
   "type": "module",
   "main": "lib/index.js",
@@ -53,7 +53,6 @@
     "@deepseek-ai/dsh-credentials": "^0.1.7-rc.1",
     "@deepseek-ai/dsh-launch-environment": "^0.1.7-rc.1",
     "@deepseek-ai/dsh-llm": "^0.1.7-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.1.7-rc.1",
     "@deepseek-ai/dsh-tools": "^0.1.7-rc.1",
     "@deepseek-ai/schemastery": "*"
   },
@@ -68,7 +67,6 @@
     "@deepseek-ai/dsh-llm": "0.1.7-rc.2",
     "@deepseek-ai/dsh-scope": "0.1.7-rc.2",
     "@deepseek-ai/dsh-session": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-settings": "0.1.7-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.7-rc.2",
     "@deepseek-ai/dsh-timeout": "0.1.7-rc.2",
     "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
