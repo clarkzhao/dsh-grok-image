@@ -2,9 +2,11 @@
 # Installed via `dsh plugin --profile <name> add ./dsh-grok-image`
 # (or linked into the profile's node_modules and added to bundles).
 #
-# Compatible with DSH 0.1.7-rc.2. Registers the model tool `image_gen`
+# Compatible with DSH 0.2.0-rc.2. Registers the model tool `image_gen`
 # that generates images through the Grok Imagine subscription endpoint
 # (same base URL, credential and proxy as dsh-llm-grok).
+# The `@deepseek-ai/dsh*` peerDependencies range must cover the running dsh
+# version: 0.2.0 refuses to mount a bundle whose peers do not satisfy it.
 - insert:
     - id: grok-image
       name: dsh-grok-image
