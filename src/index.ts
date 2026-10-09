@@ -16,6 +16,8 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import { isVolatile } from '@deepseek-ai/cosmokit'
+import type { Volatile } from '@deepseek-ai/cosmokit'
 import { ImagineClient } from './client.js'
 import { renderImageResult } from './render.js'
 import { basename } from 'node:path'
@@ -49,26 +51,43 @@ export interface Config {
   usageLog?: boolean
 }
 
-export const Config: z<Config> = z.object({
-  baseURL: z.string().default(DEFAULT_BASE_URL),
-  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
-  proxy: z.string().default(DEFAULT_PROXY),
-  model: z.string().default(DEFAULT_MODEL),
-  outputDir: z.string().default(DEFAULT_OUTPUT_DIR),
-  usageLog: z.boolean().default(true),
+// Every field is marked `.volatile()`. In DSH 0.2.0 the settings page is
+// derived from this schema by `SettingsForms.describe()`, which keeps only
+// fields under a `volatile` node (`volatileForm()`) and returns no descriptor
+// at all when none is marked — the `grok-image` page silently disappears
+// without them. The marker also changes what `apply` receives: a volatile
+// field arrives as a live `Volatile<T>` reference, so reads go through
+// `configValue` below.
+export const Config = z.object({
+  baseURL: z.string().default(DEFAULT_BASE_URL).volatile(),
+  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV).volatile(),
+  proxy: z.string().default(DEFAULT_PROXY).volatile(),
+  model: z.string().default(DEFAULT_MODEL).volatile(),
+  outputDir: z.string().default(DEFAULT_OUTPUT_DIR).volatile(),
+  usageLog: z.boolean().default(true).volatile(),
 })
+
+/**
+ * Read the current value behind one config field. Validated config hands a
+ * volatile field over as a stable reference whose value the owning runtime
+ * updates, so the value is taken per read; an ordinary field passes through.
+ */
+function configValue<T>(field: T | Volatile<T> | undefined): T | undefined {
+  if (field === undefined) return undefined
+  return isVolatile(field) ? field.get() as T : field as T
+}
 
 export function apply(ctx: Context, config: Config): void {
   const current = (): Config => config
   const read = (): Required<Pick<Config, 'baseURL' | 'apiKeyEnv' | 'proxy' | 'model' | 'outputDir' | 'usageLog'>> => {
     const value = current()
     return {
-      baseURL: value.baseURL ?? DEFAULT_BASE_URL,
-      apiKeyEnv: value.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
-      proxy: value.proxy ?? DEFAULT_PROXY,
-      model: value.model ?? DEFAULT_MODEL,
-      outputDir: value.outputDir ?? DEFAULT_OUTPUT_DIR,
-      usageLog: value.usageLog ?? true,
+      baseURL: configValue(value.baseURL) ?? DEFAULT_BASE_URL,
+      apiKeyEnv: configValue(value.apiKeyEnv) ?? DEFAULT_API_KEY_ENV,
+      proxy: configValue(value.proxy) ?? DEFAULT_PROXY,
+      model: configValue(value.model) ?? DEFAULT_MODEL,
+      outputDir: configValue(value.outputDir) ?? DEFAULT_OUTPUT_DIR,
+      usageLog: configValue(value.usageLog) ?? true,
     }
   }
 

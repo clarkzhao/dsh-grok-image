@@ -23,6 +23,7 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "repository": {
@@ -76,6 +77,7 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@deepseek-ai/cosmokit": "~1.8.5",
     "undici": "^7.0.0"
   }
 }
